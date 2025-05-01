@@ -1,12 +1,13 @@
-from datetime import datetime
-
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
 import httpx
 
-YAMAP_PROFILE_URL = f"https://api.yamap.com/v3/users/{st.query_params.get('id', 1625680)}"
-YAMAP_API_URL = f"https://api.yamap.com/v3/users/{st.query_params.get('id', 1625680)}/summits"
+ID = st.query_params.get('id', 0)
+
+YAMAP_PROFILE_URL = f"https://api.yamap.com/v3/users/{ID}"
+YAMAP_API_URL = f"https://api.yamap.com/v3/users/{ID}/summits"
+YAMAP_USER_PAGE = f"https://yamap.com/users/{ID}"
 NO_IMAGE_URL="https://image.yamap.co.jp/no_image_new.png"
 PARAMS = {"page": 1, "per": 1000}
 JAPAN_CENTER_LAT = 36.2048
@@ -30,7 +31,6 @@ def fetch_yamap_summits(url: str, params: dict) -> pd.DataFrame | None:
         for summit in summits:
             coord = summit.get("coord")
             name = summit.get("name_ja")
-            created_at = summit.get("created_at")
             image = summit.get("image")
             small_url = None
             if image:
@@ -40,7 +40,6 @@ def fetch_yamap_summits(url: str, params: dict) -> pd.DataFrame | None:
                 "latitude": coord[0],
                 "longitude": coord[1],
                 "name": name,
-                "created_at": datetime.fromtimestamp(created_at).strftime("%Y/%m/%d"),
                 "small_url": small_url if small_url else NO_IMAGE_URL
             })
 
@@ -70,82 +69,86 @@ def fetch_yamap_profile(url: str,) -> pd.DataFrame | None:
     return data
 
 
+if not ID:
+    st.write("# yamap-peak-viewer")
+    
+    yamap_id = st.text_input("YAMAP ID")
+    st.link_button("view", f"https://yamap-peak-viewer.streamlit.app/?id={yamap_id}")
+
+else:
+    hoge = fetch_yamap_profile(YAMAP_PROFILE_URL)
+    n = hoge.get("user").get("name")
+    i = hoge.get("user").get("image").get("small_url")
+    a = hoge.get("user").get("activity_count")
+    s = hoge.get("user").get("summit_count")
+
+    # # 動確用
+    # st.write(hoge)
+
+    # --- Streamlit アプリ ---
+
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if i: # プロフィール画像のURL (i) がある場合
+            st.markdown(
+                f"""
+                <style>
+                .profile-img {{
+                    border-radius: 50%;
+                    width: 100px;
+                    height: 100px;
+                    object-fit: cover;
+                }}
+                </style>
+                <a href='{YAMAP_USER_PAGE}'><img src="{i}" class="profile-img"></a>
+                """, unsafe_allow_html=True
+            )
+    with col2:
+        st.title(f"{n}'s 登頂MAP")
+        st.write(f"活動数：{a} / 登頂数：{s}")
+    st.write("---")
 
 
-hoge = fetch_yamap_profile(YAMAP_PROFILE_URL)
-n = hoge.get("user").get("name")
-i = hoge.get("user").get("image").get("small_url")
-a = hoge.get("user").get("activity_count")
-s = hoge.get("user").get("summit_count")
+    map_data = fetch_yamap_summits(YAMAP_API_URL, PARAMS)
 
-# # 動確用
-# st.write(hoge)
+    # ViewStateで視点を設定
+    view_state = pdk.ViewState(
+        latitude=JAPAN_CENTER_LAT,
+        longitude=JAPAN_CENTER_LON,
+        zoom=6,
+        pitch=0) # pitchで地図の傾きを調整
 
-# --- Streamlit アプリ ---
+    # ScatterplotLayerで登頂地点をプロット
+    layer = pdk.Layer(
+        'ScatterplotLayer',
+        data=map_data,
+        get_position="[latitude, longitude]",
+        get_color='[200, 30, 0, 160]', # 点の色 (RGBA)
+        get_radius=5000, # 点の半径 (メートル単位)
+        pickable=True, # クリックで情報を表示できるようにする
+        auto_highlight=True, # ホバー時にハイライト
+        id="map"
+    )
 
-col1, col2 = st.columns([1, 5])
-with col1:
-    if i: # プロフィール画像のURL (i) がある場合
-        st.markdown(
-            f"""
-            <style>
-            .profile-img {{
-                border-radius: 50%;
-                width: 100px;
-                height: 100px;
-                object-fit: cover;
-            }}
-            </style>
-            <img src="{i}" class="profile-img">
-            """, unsafe_allow_html=True
-        )
-with col2:
-    st.title(f"{n}'s 登頂MAP")
-    st.write(f"活動数：{a} / 登頂数：{s}")
-st.write("---")
-
-
-map_data = fetch_yamap_summits(YAMAP_API_URL, PARAMS)
-
-# ViewStateで視点を設定
-view_state = pdk.ViewState(
-    latitude=JAPAN_CENTER_LAT,
-    longitude=JAPAN_CENTER_LON,
-    zoom=6,
-    pitch=0) # pitchで地図の傾きを調整
-
-# ScatterplotLayerで登頂地点をプロット
-layer = pdk.Layer(
-    'ScatterplotLayer',
-    data=map_data,
-    get_position="[latitude, longitude]",
-    get_color='[200, 30, 0, 160]', # 点の色 (RGBA)
-    get_radius=5000, # 点の半径 (メートル単位)
-    pickable=True, # クリックで情報を表示できるようにする
-    auto_highlight=True, # ホバー時にハイライト
-    id="map"
-)
-
-# ツールチップの設定
-tooltip = {
-    "html": """
-    <div style="text-align: center;">
-        <strong>{name}</strong><br/>
-        <img src="{small_url}" width="100" height="100" loading="lazy"/><br/>
-        初登頂：{created_at}
-    </div>
-""",
-    "style": {
-        "backgroundColor": "steelblue",
-        "color": "white"
+    # ツールチップの設定
+    tooltip = {
+        "html": """
+        <div style="text-align: center;">
+            <strong>{name}</strong><br/>
+            <img src="{small_url}" width="100" height="100" loading="lazy"/><br/>
+        </div>
+    """,
+        "style": {
+            "backgroundColor": "steelblue",
+            "color": "white"
+        }
     }
-}
 
-deck = pdk.Deck(
-    map_style=None, # マップスタイルを選択
-    initial_view_state=view_state,
-    layers=[layer],
-    tooltip=tooltip
-)
+    deck = pdk.Deck(
+        map_style=None, # マップスタイルを選択
+        initial_view_state=view_state,
+        layers=[layer],
+        tooltip=tooltip
+    )
 
-st.pydeck_chart(deck)
+    st.pydeck_chart(deck)

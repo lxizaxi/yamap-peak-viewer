@@ -71,9 +71,13 @@ def fetch_yamap_profile(url: str,) -> pd.DataFrame | None:
 
 if not ID:
     st.write("# yamap-peak-viewer")
-    
-    yamap_id = st.text_input("YAMAP ID")
-    st.link_button("view", f"https://yamap-peak-viewer.streamlit.app/?id={yamap_id}")
+    with st.form(key='id_form'):
+        yamap_id_input = st.text_input("YAMAP ID を入力してEnterキーを押してください", key="yamap_id")
+        submitted = st.form_submit_button(label="View")
+        if submitted and yamap_id_input:
+            # JavaScriptでリダイレクトを実行
+            st.markdown(f'<meta http-equiv="refresh" content="0; url=/?id={yamap_id_input}">', unsafe_allow_html=True)
+            st.stop() # リダイレクト開始後、スクリプトを停止
 
 else:
     hoge = fetch_yamap_profile(YAMAP_PROFILE_URL)
